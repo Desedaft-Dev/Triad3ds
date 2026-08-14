@@ -8,6 +8,9 @@ AI was used to develop some parts of this program. I am not brain-dead vibe codi
 **Keybinds**
 
 Circlepad Up/Down: Scroll text feed
+
 Dpad Up/Down/Left/Right: move north, east, south, west
+
 X: Send previous command
+
 Start: Disconnect from TriadCity.
