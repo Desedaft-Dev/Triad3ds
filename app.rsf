@@ -1,0 +1,30 @@
+BasicInfo:
+  Title: "Triad3ds"
+  CompanyCode: "00"
+  ProductCode: "CTR-P-HOME"
+  ContentType: Application
+  Logo: None
+
+Rom:
+  HostRoot: ./
+  Format: CTR
+
+TitleInfo:
+  Category: Application
+  UniqueId: 0x49572     #
+
+Option:
+  UseOnSdmc: true
+  CoreVersion: 2
+  EnableDataCache: true
+
+SystemControlInfo:
+  SaveDataSize: 0KB
+  RemasterVersion: 0
+  StackSize: 0x4000
+  JumpId: 0x0004000004957200 
+
+  Dependency:
+    - 0x0004013000001A02 # gsp
+    - 0x0004013000001D02 # hid
+    - 0x0004013000002E02 # ndm
