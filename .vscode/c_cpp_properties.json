@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "name": "3DS",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/opt/devkitpro/libctru/include/**",
+                "/opt/devkitpro/devkitARM/include/**",
+                "/opt/devkitpro/devkitARM/arm-none-eabi/include/**"
+               // "/opt/devkitpro/portlibs/3ds/include/**"
+            ],
+            "defines": [
+                "_ROMFS",
+                "ARM11",
+                "_3DS"
+            ],
+            "compilerPath": "/opt/devkitpro/devkitARM/bin/arm-none-eabi-g++",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-arm"
+        }
+    ],
+    "version": 4
+}

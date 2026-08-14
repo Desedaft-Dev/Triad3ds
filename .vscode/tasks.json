@@ -1,0 +1,53 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "make",
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "options": {
+                "env": {
+                    "DEVKITPRO": "/opt/devkitpro",
+                    "DEVKITARM": "/opt/devkitpro/devkitARM",
+                    "3DS": "" 
+                }
+            },
+            "problemMatcher": "$gcc"
+        },
+        {
+            "label": "clean",
+            "type": "shell",
+            "command": "make clean",
+            "options": {
+                "env": {
+                    "DEVKITPRO": "/opt/devkitpro",
+                    "DEVKITARM": "/opt/devkitpro/devkitARM",
+                    "3DS": "" 
+                }
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Emulate",
+            "type": "process",
+            //"command": "~/Applications/azahar_def448dc71c667b5fdb30c8856c0e8e0.appimage '/home/seppw/Homebrew/3dsprojects/MUD_project/MUD_project.3dsx'",
+            "command": "/home/seppw/Applications/azahar_def448dc71c667b5fdb30c8856c0e8e0.appimage",
+            "group": "build",
+            "dependsOn": ["build"],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            }
+
+
+        }
+    ]
+}
