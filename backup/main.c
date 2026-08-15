@@ -125,31 +125,59 @@ void redraw_console(PrintConsole *con) {
 
 //Print line with correct wrapping to avoid being cut off
 void print_word_wrapped(const char *text, PrintConsole *con) {
-    static char line_buf[MAX_COLS + 1];
-    static int line_len = 0;
+    static char line_buf[256];
+    static int line_len = 0;   
+    int buf_idx = 0;           
 
     for (int i = 0; text[i] != '\0'; i++) {
         char c = text[i];
         if (c == '\r') continue;
 
+        // Convert tabs to spaces to prevent console tab-stop glitches
+        if (c == '\t') c = ' ';
+
+        // Handle explicit newlines
         if (c == '\n') {
-            line_buf[line_len] = '\0';
+            line_buf[buf_idx] = '\0';
             add_to_history(line_buf);
-            if (scroll_offset == 0) {
-                redraw_console(con);
-            }
+            if (scroll_offset == 0) redraw_console(con);
             line_len = 0;
+            buf_idx = 0;
+
+            while (text[i + 1] == ' ' || text[i + 1] == '\t') {
+                i++;
+            }
             continue;
         }
 
-        if (line_len < MAX_COLS) {
-            line_buf[line_len++] = c;
-            line_buf[line_len] = '\0';
+        // Skip/copy ANSI escape sequences without counting them toward width
+        if (c == '\x1b' && text[i+1] == '[') {
+            line_buf[buf_idx++] = c;
+            i++;
+            line_buf[buf_idx++] = text[i]; 
+            i++;
+            while (text[i] != '\0') {
+                line_buf[buf_idx++] = text[i];
+                if ((text[i] >= 'A' && text[i] <= 'Z') || (text[i] >= 'a' && text[i] <= 'z')) {
+                    break; 
+                }
+                i++;
+            }
+            line_buf[buf_idx] = '\0';
+            continue; 
         }
 
+        // Normal character processing
+        if (buf_idx < sizeof(line_buf) - 1) {
+            line_buf[buf_idx++] = c;
+            line_buf[buf_idx] = '\0';
+            line_len++; 
+        }
+
+        // Wrap if visible length hits the column limit
         if (line_len >= MAX_COLS) {
             int break_idx = -1;
-            for (int j = line_len - 1; j >= 0; j--) {
+            for (int j = buf_idx - 1; j >= 0; j--) {
                 if (line_buf[j] == ' ') {
                     break_idx = j;
                     break;
@@ -161,25 +189,48 @@ void print_word_wrapped(const char *text, PrintConsole *con) {
                 add_to_history(line_buf);
                 if (scroll_offset == 0) redraw_console(con);
                 
-                int rem_len = line_len - (break_idx + 1);
-                memmove(line_buf, &line_buf[break_idx + 1], rem_len);
-                line_len = rem_len;
-                line_buf[line_len] = '\0';
+                // Get remainder after the break
+                int rem_len = buf_idx - (break_idx + 1);
+                memmove(line_buf, &line_buf[break_idx + 1], rem_len + 1);
+                buf_idx = rem_len;
+                
+                // CRITICAL FIX: Trim any leading spaces on the new wrapped line 
+                // so it doesn't start with an ugly indentation offset.
+                int trim_idx = 0;
+                while (line_buf[trim_idx] == ' ') {
+                    trim_idx++;
+                }
+                if (trim_idx > 0) {
+                    memmove(line_buf, &line_buf[trim_idx], buf_idx - trim_idx + 1);
+                    buf_idx -= trim_idx;
+                }
+
+                // Recalculate visible line length for the leftover chunk
+                line_len = 0;
+                for (int k = 0; k < buf_idx; k++) {
+                    if (line_buf[k] == '\x1b') {
+                        while(line_buf[k] != 'm' && line_buf[k] != '\0') k++;
+                    } else {
+                        line_len++;
+                    }
+                }
             } else {
                 add_to_history(line_buf);
                 if (scroll_offset == 0) redraw_console(con);
+                buf_idx = 0;
                 line_len = 0;
             }
         }
     }
     
-    if (line_len > 0) {
+    if (buf_idx > 0) {
+        line_buf[buf_idx] = '\0';
         add_to_history(line_buf);
         if (scroll_offset == 0) redraw_console(con);
+        buf_idx = 0;
         line_len = 0;
     }
 }
-
 
 
 void UpdateStatus(int sock){
@@ -257,7 +308,7 @@ int main(int argc, char* argv[]) {
     draw_bottom_hud(&bottomScreenConsole);
     u64 lastTime = osGetTime();
 
-    const u64 statusInterval = 10000;
+    const u64 statusInterval = 3000;
 
     while (aptMainLoop()) {
         hidScanInput();
@@ -436,8 +487,12 @@ int main(int argc, char* argv[]) {
                             // Send the saved text variable to the MUD server socket
                             send(sock, text_input, strlen(text_input), 0);
 
-                            printf("\n> %s", text_input); // Echo what you sent to the top screen
+                            //printf("\n> %s", text_input); // Echo what you sent to the top screen
                         }
+                break;
+
+                case KEY_X:
+                    send(sock, text_input, strlen(text_input), 0);
                 break;
 
 

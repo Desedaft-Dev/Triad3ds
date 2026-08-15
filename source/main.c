@@ -106,6 +106,13 @@ void redraw_console(PrintConsole *con) {
     consoleSelect(con);
     consoleClear();
 
+    // FIX: consoleClear() does not reset text attributes/colors. If a color
+    // was left "on" from before the clear (e.g. the line that set it has
+    // scrolled out of the visible window), it would otherwise bleed into
+    // the freshly cleared screen and paint unrelated lines. Force a known
+    // baseline attribute state on every redraw.
+    printf("\x1b[0m");
+
     int total = history_count;
     int end_idx = total - scroll_offset; 
     int start_idx = end_idx - CONSOLE_HEIGHT;
@@ -127,7 +134,16 @@ void redraw_console(PrintConsole *con) {
 void print_word_wrapped(const char *text, PrintConsole *con) {
     static char line_buf[256];
     static int line_len = 0;   
-    int buf_idx = 0;           
+    // FIX: this MUST be static. line_buf/line_len are static so partial
+    // line state (including a partial ANSI escape sequence) survives
+    // between calls -- but buf_idx was a plain local that reset to 0 on
+    // every call. Since a single recv() may cut an escape code in half
+    // (e.g. "\x1b[1;3" in one packet, "2m" in the next), resetting buf_idx
+    // caused the second half to overwrite line_buf from the start instead
+    // of appending after the buffered partial code, corrupting/losing the
+    // color code and leaking stray characters ("2m") into the text. This
+    // is the root cause of colors "affecting the wrong things".
+    static int buf_idx = 0;
 
     for (int i = 0; text[i] != '\0'; i++) {
         char c = text[i];
@@ -209,7 +225,19 @@ void print_word_wrapped(const char *text, PrintConsole *con) {
                 line_len = 0;
                 for (int k = 0; k < buf_idx; k++) {
                     if (line_buf[k] == '\x1b') {
-                        while(line_buf[k] != 'm' && line_buf[k] != '\0') k++;
+                        // FIX: the primary parser above treats ANY letter
+                        // (A-Z, a-z) as a valid escape terminator, not just
+                        // 'm'. This recalculation only looked for 'm', so
+                        // an escape sequence ending in a different letter
+                        // would desync the length count and could swallow
+                        // real text into the "skip" range. Match the same
+                        // terminator rule as the main parser.
+                        k++;
+                        while (k < buf_idx &&
+                               !((line_buf[k] >= 'A' && line_buf[k] <= 'Z') ||
+                                 (line_buf[k] >= 'a' && line_buf[k] <= 'z'))) {
+                            k++;
+                        }
                     } else {
                         line_len++;
                     }
