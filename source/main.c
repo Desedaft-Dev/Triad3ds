@@ -79,10 +79,7 @@ void draw_bottom_hud(PrintConsole *bot_con) {
     printf("\x1b[28;1H    [ Tap screen to open keyboard ]        ");
 }
 
-// ---- Modular command menu -------------------------------------------
-// To add a new command: just add a line to this array. Nothing else
-// needs to change - the menu grid, scrolling, and navigation all adapt
-// automatically based on NUM_COMMANDS.
+
 typedef struct {
     const char *label;    // What shows in the on-screen list
     const char *command;  // Raw bytes sent to the MUD (include \r\n)
@@ -91,7 +88,7 @@ typedef struct {
 static const MenuCommand g_commands[] = {
     { "Look",       "look\r\n" },
     { "Inventory",  "inventory\r\n" },
-    { "Status",      "score\r\n" },
+    { "Status",      "status\r\n" },
     { "Rest",       "rest\r\n" },
     { "Stand",     "stand\r\n" },
     { "Meditate",  "meditate\r\n" },
@@ -109,7 +106,6 @@ static const MenuCommand g_commands[] = {
 static int menu_open = 0;
 static int menu_selected = 0;
 
-// Number of grid rows in a given column (0 = left, 1 = right).
 // The left column always gets the "extra" entry when NUM_COMMANDS is odd,
 // since commands fill left-to-right, top-to-bottom.
 static int col_count(int col) {
@@ -218,12 +214,6 @@ void add_to_history(const char *line) {
 void redraw_console(PrintConsole *con) {
     consoleSelect(con);
     consoleClear();
-
-    // FIX: consoleClear() does not reset text attributes/colors. If a color
-    // was left "on" from before the clear (e.g. the line that set it has
-    // scrolled out of the visible window), it would otherwise bleed into
-    // the freshly cleared screen and paint unrelated lines. Force a known
-    // baseline attribute state on every redraw.
     printf("\x1b[0m");
 
     int total = history_count;
@@ -247,15 +237,6 @@ void redraw_console(PrintConsole *con) {
 void print_word_wrapped(const char *text, PrintConsole *con) {
     static char line_buf[256];
     static int line_len = 0;   
-    // FIX: this MUST be static. line_buf/line_len are static so partial
-    // line state (including a partial ANSI escape sequence) survives
-    // between calls -- but buf_idx was a plain local that reset to 0 on
-    // every call. Since a single recv() may cut an escape code in half
-    // (e.g. "\x1b[1;3" in one packet, "2m" in the next), resetting buf_idx
-    // caused the second half to overwrite line_buf from the start instead
-    // of appending after the buffered partial code, corrupting/losing the
-    // color code and leaking stray characters ("2m") into the text. This
-    // is the root cause of colors "affecting the wrong things".
     static int buf_idx = 0;
 
     for (int i = 0; text[i] != '\0'; i++) {
@@ -338,13 +319,6 @@ void print_word_wrapped(const char *text, PrintConsole *con) {
                 line_len = 0;
                 for (int k = 0; k < buf_idx; k++) {
                     if (line_buf[k] == '\x1b') {
-                        // FIX: the primary parser above treats ANY letter
-                        // (A-Z, a-z) as a valid escape terminator, not just
-                        // 'm'. This recalculation only looked for 'm', so
-                        // an escape sequence ending in a different letter
-                        // would desync the length count and could swallow
-                        // real text into the "skip" range. Match the same
-                        // terminator rule as the main parser.
                         k++;
                         while (k < buf_idx &&
                                !((line_buf[k] >= 'A' && line_buf[k] <= 'Z') ||
@@ -618,7 +592,7 @@ int main(int argc, char* argv[]) {
                     menu_open = 0;
                     clear_command_menu(&bottomScreenConsole);
                 }
-            } else if (kDown & KEY_A) {
+            } else if (kDown & KEY_A & initialSetup) {
                 menu_open = 1;
                 menu_selected = 0;
                 draw_command_menu(&bottomScreenConsole, menu_selected);
