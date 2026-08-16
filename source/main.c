@@ -81,8 +81,8 @@ void draw_bottom_hud(PrintConsole *bot_con) {
 
 // ---- Modular command menu -------------------------------------------
 // To add a new command: just add a line to this array. Nothing else
-// needs to change - the menu sizes, scrolls, and renders itself based
-// on NUM_COMMANDS.
+// needs to change - the menu grid, scrolling, and navigation all adapt
+// automatically based on NUM_COMMANDS.
 typedef struct {
     const char *label;    // What shows in the on-screen list
     const char *command;  // Raw bytes sent to the MUD (include \r\n)
@@ -91,7 +91,10 @@ typedef struct {
 static const MenuCommand g_commands[] = {
     { "Look",       "look\r\n" },
     { "Inventory",  "inventory\r\n" },
+    { "Status",      "score\r\n" },
     { "Rest",       "rest\r\n" },
+    { "Stand",     "stand\r\n" },
+    { "Meditate",  "meditate\r\n" },
     { "Who",        "who\r\n" },
 };
 #define NUM_COMMANDS ((int)(sizeof(g_commands) / sizeof(g_commands[0])))
@@ -100,13 +103,45 @@ static const MenuCommand g_commands[] = {
 // clear of the HUD (rows 1-5) and the "tap screen" hint (row 28).
 #define MENU_TOP_ROW    7
 #define MENU_BOTTOM_ROW 26
+#define LEFT_COL_X      1
+#define RIGHT_COL_X     21
 
 static int menu_open = 0;
 static int menu_selected = 0;
 
-// Draws (or refreshes) the command menu in its own reserved region.
-// Never writes outside MENU_TOP_ROW..MENU_BOTTOM_ROW, so the HUD is
-// untouched. Scrolls automatically if NUM_COMMANDS grows past what fits.
+// Number of grid rows in a given column (0 = left, 1 = right).
+// The left column always gets the "extra" entry when NUM_COMMANDS is odd,
+// since commands fill left-to-right, top-to-bottom.
+static int col_count(int col) {
+    return (NUM_COMMANDS - col + 1) / 2;
+}
+
+// Straight up/down: stay in the same column, wrap within it.
+static void menu_move_vertical(int delta) {
+    int col = menu_selected % 2;
+    int row = menu_selected / 2;
+    int rows_in_col = col_count(col);
+    row = (row + delta + rows_in_col) % rows_in_col;
+    menu_selected = row * 2 + col;
+}
+
+// Left/right: jump to the other column, same row (clamped if that
+// column is one shorter, e.g. with an odd NUM_COMMANDS).
+static void menu_move_horizontal(int target_col) {
+    int col = menu_selected % 2;
+    if (col == target_col) return;
+    int row = menu_selected / 2;
+    int rows_in_target = col_count(target_col);
+    if (rows_in_target == 0) return;
+    if (row >= rows_in_target) row = rows_in_target - 1;
+    menu_selected = row * 2 + target_col;
+}
+
+// Draws (or refreshes) the command menu as a 2-column grid: command 1
+// top-left, command 2 top-right, command 3 below command 1, command 4
+// below command 2, etc. Never writes outside MENU_TOP_ROW..MENU_BOTTOM_ROW,
+// so the HUD is untouched. Scrolls automatically if the grid grows past
+// what fits vertically.
 void draw_command_menu(PrintConsole *bot_con, int selected) {
     consoleSelect(bot_con);
 
@@ -115,24 +150,36 @@ void draw_command_menu(PrintConsole *bot_con, int selected) {
         printf("\x1b[%d;1H%-40s", row, "");
     }
 
-    printf("\x1b[%d;1H-- Commands (A: send, B: cancel) --    ", MENU_TOP_ROW);
+    printf("\x1b[%d;1H- Commands (A:send B:cancel) -", MENU_TOP_ROW);
 
     int list_top  = MENU_TOP_ROW + 1;
     int list_rows = MENU_BOTTOM_ROW - list_top + 1;
 
+    int total_rows = col_count(0); // grid rows needed (left col is never shorter)
+    int sel_row = selected / 2;
+
     int scroll = 0;
-    if (NUM_COMMANDS > list_rows) {
-        scroll = selected - list_rows / 2;
+    if (total_rows > list_rows) {
+        scroll = sel_row - list_rows / 2;
         if (scroll < 0) scroll = 0;
-        if (scroll > NUM_COMMANDS - list_rows) scroll = NUM_COMMANDS - list_rows;
+        if (scroll > total_rows - list_rows) scroll = total_rows - list_rows;
     }
 
-    for (int row = 0; row < list_rows; row++) {
-        int cmd_idx = scroll + row;
-        if (cmd_idx >= NUM_COMMANDS) break;
+    for (int r = 0; r < list_rows; r++) {
+        int grid_row = scroll + r;
+        if (grid_row >= total_rows) break;
 
-        const char *marker = (cmd_idx == selected) ? ">" : " ";
-        printf("\x1b[%d;1H%s %-37s", list_top + row, marker, g_commands[cmd_idx].label);
+        int left_idx  = grid_row * 2;
+        int right_idx = grid_row * 2 + 1;
+
+        if (left_idx < NUM_COMMANDS) {
+            const char *marker = (left_idx == selected) ? ">" : " ";
+            printf("\x1b[%d;%dH%s %-16s", list_top + r, LEFT_COL_X, marker, g_commands[left_idx].label);
+        }
+        if (right_idx < NUM_COMMANDS) {
+            const char *marker = (right_idx == selected) ? ">" : " ";
+            printf("\x1b[%d;%dH%s %-16s", list_top + r, RIGHT_COL_X, marker, g_commands[right_idx].label);
+        }
     }
 }
 
@@ -545,12 +592,22 @@ int main(int argc, char* argv[]) {
         if(kDown)
         {
             if (menu_open) {
-                //D-pad now used for navigating menu instead of navigating the world
+                // Menu is open: D-pad up/down navigates within the current
+                // column, D-pad left/right hops to the other column (same
+                // row), A sends the highlighted command, B cancels. All
+                // other input is swallowed this frame so movement/touch
+                // don't fire accidentally while browsing.
                 if (kDown & KEY_DUP) {
-                    menu_selected = (menu_selected - 1 + NUM_COMMANDS) % NUM_COMMANDS;
+                    menu_move_vertical(-1);
                     draw_command_menu(&bottomScreenConsole, menu_selected);
                 } else if (kDown & KEY_DDOWN) {
-                    menu_selected = (menu_selected + 1) % NUM_COMMANDS;
+                    menu_move_vertical(1);
+                    draw_command_menu(&bottomScreenConsole, menu_selected);
+                } else if (kDown & KEY_DLEFT) {
+                    menu_move_horizontal(0);
+                    draw_command_menu(&bottomScreenConsole, menu_selected);
+                } else if (kDown & KEY_DRIGHT) {
+                    menu_move_horizontal(1);
                     draw_command_menu(&bottomScreenConsole, menu_selected);
                 } else if (kDown & KEY_A) {
                     const char *cmd = g_commands[menu_selected].command;
