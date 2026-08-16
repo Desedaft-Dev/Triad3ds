@@ -76,7 +76,73 @@ void draw_bottom_hud(PrintConsole *bot_con) {
    
     printf("\x1b[5;1H========================================");
 
-    printf("\x1b[28;1H     [ Tap screen to open keyboard ]        ");
+    printf("\x1b[28;1H [ Tap screen to open keyboard ]        ");
+}
+
+// ---- Modular command menu -------------------------------------------
+// To add a new command: just add a line to this array. Nothing else
+// needs to change - the menu sizes, scrolls, and renders itself based
+// on NUM_COMMANDS.
+typedef struct {
+    const char *label;    // What shows in the on-screen list
+    const char *command;  // Raw bytes sent to the MUD (include \r\n)
+} MenuCommand;
+
+static const MenuCommand g_commands[] = {
+    { "Look",       "look\r\n" },
+    { "Inventory",  "inventory\r\n" },
+    { "Rest",       "rest\r\n" },
+    { "Who",        "who\r\n" },
+};
+#define NUM_COMMANDS ((int)(sizeof(g_commands) / sizeof(g_commands[0])))
+
+// Region of the bottom screen the menu is allowed to draw in - kept
+// clear of the HUD (rows 1-5) and the "tap screen" hint (row 28).
+#define MENU_TOP_ROW    7
+#define MENU_BOTTOM_ROW 26
+
+static int menu_open = 0;
+static int menu_selected = 0;
+
+// Draws (or refreshes) the command menu in its own reserved region.
+// Never writes outside MENU_TOP_ROW..MENU_BOTTOM_ROW, so the HUD is
+// untouched. Scrolls automatically if NUM_COMMANDS grows past what fits.
+void draw_command_menu(PrintConsole *bot_con, int selected) {
+    consoleSelect(bot_con);
+
+    // Clear just the menu region first (blank 40-col lines).
+    for (int row = MENU_TOP_ROW; row <= MENU_BOTTOM_ROW; row++) {
+        printf("\x1b[%d;1H%-40s", row, "");
+    }
+
+    printf("\x1b[%d;1H-- Commands (A: send, B: cancel) --    ", MENU_TOP_ROW);
+
+    int list_top  = MENU_TOP_ROW + 1;
+    int list_rows = MENU_BOTTOM_ROW - list_top + 1;
+
+    int scroll = 0;
+    if (NUM_COMMANDS > list_rows) {
+        scroll = selected - list_rows / 2;
+        if (scroll < 0) scroll = 0;
+        if (scroll > NUM_COMMANDS - list_rows) scroll = NUM_COMMANDS - list_rows;
+    }
+
+    for (int row = 0; row < list_rows; row++) {
+        int cmd_idx = scroll + row;
+        if (cmd_idx >= NUM_COMMANDS) break;
+
+        const char *marker = (cmd_idx == selected) ? ">" : " ";
+        printf("\x1b[%d;1H%s %-37s", list_top + row, marker, g_commands[cmd_idx].label);
+    }
+}
+
+// Erases the menu region and leaves the HUD as the only thing on the
+// bottom screen again.
+void clear_command_menu(PrintConsole *bot_con) {
+    consoleSelect(bot_con);
+    for (int row = MENU_TOP_ROW; row <= MENU_BOTTOM_ROW; row++) {
+        printf("\x1b[%d;1H%-40s", row, "");
+    }
 }
 
 
@@ -478,57 +544,80 @@ int main(int argc, char* argv[]) {
 
         if(kDown)
         {
-            switch(kDown){
-                case KEY_DDOWN:
-                    send(sock, "s\r\n", strlen("s\r\n"), 0);
-                break;
+            if (menu_open) {
+                //D-pad now used for navigating menu instead of navigating the world
+                if (kDown & KEY_DUP) {
+                    menu_selected = (menu_selected - 1 + NUM_COMMANDS) % NUM_COMMANDS;
+                    draw_command_menu(&bottomScreenConsole, menu_selected);
+                } else if (kDown & KEY_DDOWN) {
+                    menu_selected = (menu_selected + 1) % NUM_COMMANDS;
+                    draw_command_menu(&bottomScreenConsole, menu_selected);
+                } else if (kDown & KEY_A) {
+                    const char *cmd = g_commands[menu_selected].command;
+                    send(sock, cmd, strlen(cmd), 0);
+                    menu_open = 0;
+                    clear_command_menu(&bottomScreenConsole);
+                } else if (kDown & KEY_B) {
+                    menu_open = 0;
+                    clear_command_menu(&bottomScreenConsole);
+                }
+            } else if (kDown & KEY_A) {
+                menu_open = 1;
+                menu_selected = 0;
+                draw_command_menu(&bottomScreenConsole, menu_selected);
+            } else {
+                switch(kDown){
+                    case KEY_DDOWN:
+                        send(sock, "s\r\n", strlen("s\r\n"), 0);
+                    break;
 
-                case KEY_DUP:
-                    send(sock, "n\r\n", strlen("n\r\n"), 0);
-                break;
+                    case KEY_DUP:
+                        send(sock, "n\r\n", strlen("n\r\n"), 0);
+                    break;
 
-                case KEY_DLEFT:
-                    send(sock, "w\r\n", strlen("w\r\n"), 0);
-                break;
+                    case KEY_DLEFT:
+                        send(sock, "w\r\n", strlen("w\r\n"), 0);
+                    break;
 
-                case KEY_DRIGHT:
-                    send(sock, "e\r\n", strlen("e\r\n"), 0);
-                break;
+                    case KEY_DRIGHT:
+                        send(sock, "e\r\n", strlen("e\r\n"), 0);
+                    break;
 
-                case KEY_TOUCH:
-                    SwkbdState swkbd;
-                        SwkbdButton button = SWKBD_BUTTON_NONE;
+                    case KEY_TOUCH:
+                        SwkbdState swkbd;
+                            SwkbdButton button = SWKBD_BUTTON_NONE;
 
-                        // Initialize standard software keyboard (2 buttons: Cancel / OK)
-                        swkbdInit(&swkbd, SWKBD_TYPE_NORMAL, 2, -1);
-                        swkbdSetHintText(&swkbd, "Enter MUD command...");
-                        //swkbdSetFeatures(&swkbd, SWKBD_PREDICTIVE_INPUT);
+                            // Initialize standard software keyboard (2 buttons: Cancel / OK)
+                            swkbdInit(&swkbd, SWKBD_TYPE_NORMAL, 2, -1);
+                            swkbdSetHintText(&swkbd, "Enter MUD command...");
+                            //swkbdSetFeatures(&swkbd, SWKBD_PREDICTIVE_INPUT);
 
-                        // Open keyboard applet (pauses game until user finishes typing)
-                        button = swkbdInputText(&swkbd, text_input, sizeof(text_input));
+                            // Open keyboard applet (pauses game until user finishes typing)
+                            button = swkbdInputText(&swkbd, text_input, sizeof(text_input));
 
-                        // If user clicked OK and typed something
-                        if (button == SWKBD_BUTTON_CONFIRM && strlen(text_input) > 0) {
-                            // MUD servers typically expect a carriage return/newline at the end of commands
-                            strcat(text_input, "\r\n");
+                            // If user clicked OK and typed something
+                            if (button == SWKBD_BUTTON_CONFIRM && strlen(text_input) > 0) {
+                                // MUD servers typically expect a carriage return/newline at the end of commands
+                                strcat(text_input, "\r\n");
 
-                            // Send the saved text variable to the MUD server socket
-                            send(sock, text_input, strlen(text_input), 0);
+                                // Send the saved text variable to the MUD server socket
+                                send(sock, text_input, strlen(text_input), 0);
 
-                            //printf("\n> %s", text_input); // Echo what you sent to the top screen
+                                //printf("\n> %s", text_input); // Echo what you sent to the top screen
+                            }
+                    break;
+
+                    case KEY_X:
+                        send(sock, text_input, strlen(text_input), 0);
+                    break;
+
+
+                    default://crappy fix to prevent scrolling from filling feed with error message
+                        if(kDown != KEY_DOWN && kDown != KEY_LEFT && kDown != KEY_RIGHT && kDown != KEY_UP && kDown != KEY_CPAD_DOWN && kDown != KEY_CPAD_LEFT && kDown != KEY_CPAD_RIGHT && kDown != KEY_CPAD_UP){
+                            print_word_wrapped("Unbound Input", &topScreenConsole);
                         }
-                break;
-
-                case KEY_X:
-                    send(sock, text_input, strlen(text_input), 0);
-                break;
-
-
-                default://crappy fix to prevent scrolling from filling feed with error message
-                    if(kDown != KEY_DOWN && kDown != KEY_LEFT && kDown != KEY_RIGHT && kDown != KEY_UP && kDown != KEY_CPAD_DOWN && kDown != KEY_CPAD_LEFT && kDown != KEY_CPAD_RIGHT && kDown != KEY_CPAD_UP){
-                        print_word_wrapped("Unbound Input", &topScreenConsole);
-                    }
-                    
+                        
+                }
             }
         }
 
