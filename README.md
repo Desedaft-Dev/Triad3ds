@@ -11,6 +11,11 @@ Circlepad Up/Down: Scroll text feed
 
 Dpad Up/Down/Left/Right: move north, east, south, west
 
+A: Open quick-command menu
+
+B: Close quick-command menu
+
 X: Send previous command
 
 Start: Disconnect from TriadCity.
+
