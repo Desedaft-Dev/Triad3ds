@@ -76,7 +76,7 @@ void draw_bottom_hud(PrintConsole *bot_con) {
    
     printf("\x1b[5;1H========================================");
 
-    printf("\x1b[28;1H [ Tap screen to open keyboard ]        ");
+    printf("\x1b[28;1H     [ Tap screen to open keyboard ]        ");
 }
 
 
