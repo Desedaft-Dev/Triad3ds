@@ -480,23 +480,23 @@
 001251dc 00000048 T strrchr
 00125224 T _fini
 00126000 00000038 r g_commands
-001267b0 r .LC2
-00126a6c 00000080 r dotab_stdout
-00126aec 00000018 r grayScale
-00126b04 00000006 r colorCube
-00126b0c 00000030 r colorTable
-00126b58 00000008 r morton_y.2
-00126b60 00000008 r morton_x.3
-00126b68 00000008 r s_sleepWakeEvents.4
-00126b70 0000000c r serviceNameTable.5
-00126b7c R default_font_bin
-0012737c R default_font_bin_end
-0012737c 0000004d r _net_error_code_map
-001273cc 00000030 r error_table
-001273fc 00000080 r archive_devoptab
-001275d0 00000022 r basefix.0
-00127654 00000014 r fpinan.0
-00127668 00000014 r fpi.1
+001267b4 r .LC2
+00126a70 00000080 r dotab_stdout
+00126af0 00000018 r grayScale
+00126b08 00000006 r colorCube
+00126b10 00000030 r colorTable
+00126b5c 00000008 r morton_y.2
+00126b64 00000008 r morton_x.3
+00126b6c 00000008 r s_sleepWakeEvents.4
+00126b74 0000000c r serviceNameTable.5
+00126b80 R default_font_bin
+00127380 R default_font_bin_end
+00127380 0000004d r _net_error_code_map
+001273d0 00000030 r error_table
+00127400 00000080 r archive_devoptab
+001275d4 00000022 r basefix.0
+00127658 00000014 r fpinan.0
+0012766c 00000014 r fpi.1
 00127680 00000028 r tinytens
 001276a8 00000100 R __hexdig
 00127894 00000010 r zeroes.0
