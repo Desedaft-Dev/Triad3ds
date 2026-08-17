@@ -1,5 +1,10 @@
 # Triad3ds
- A client for the TriadCity MUD. Works by using the telnet connection method. This client comes with a stats display and keybinds to make navigating and playing easier.
+ A client for the TriadCity MUD. Works by using the telnet connection method. This client comes with a stats display, quick-commands, and other keybinds to make navigating and playing easier.
+
+
+**You need custom firmware to run Triad3ds**
+
+A guide to install custom firmware on your 3ds is available here https://3ds.hacks.guide/
  
 **AI Notice**
 
