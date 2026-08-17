@@ -55,6 +55,7 @@ int Thirst = 0;
 int MaxThirst = 0;
 
 int initialSetup = 0;
+int canPrint = 1;
 //Update bottom screen with de stats
 void draw_bottom_hud(PrintConsole *bot_con) {
     consoleSelect(bot_con);
@@ -76,13 +77,10 @@ void draw_bottom_hud(PrintConsole *bot_con) {
    
     printf("\x1b[5;1H========================================");
 
-    printf("\x1b[28;1H [ Tap screen to open keyboard ]        ");
+    printf("\x1b[28;1H    [ Tap screen to open keyboard ]        ");
 }
 
-// ---- Modular command menu -------------------------------------------
-// To add a new command: just add a line to this array. Nothing else
-// needs to change - the menu sizes, scrolls, and renders itself based
-// on NUM_COMMANDS.
+
 typedef struct {
     const char *label;    // What shows in the on-screen list
     const char *command;  // Raw bytes sent to the MUD (include \r\n)
@@ -91,7 +89,10 @@ typedef struct {
 static const MenuCommand g_commands[] = {
     { "Look",       "look\r\n" },
     { "Inventory",  "inventory\r\n" },
+    { "Status",      "status\r\n" },
     { "Rest",       "rest\r\n" },
+    { "Stand",     "stand\r\n" },
+    { "Meditate",  "meditate\r\n" },
     { "Who",        "who\r\n" },
 };
 #define NUM_COMMANDS ((int)(sizeof(g_commands) / sizeof(g_commands[0])))
@@ -100,13 +101,44 @@ static const MenuCommand g_commands[] = {
 // clear of the HUD (rows 1-5) and the "tap screen" hint (row 28).
 #define MENU_TOP_ROW    7
 #define MENU_BOTTOM_ROW 26
+#define LEFT_COL_X      1
+#define RIGHT_COL_X     21
 
 static int menu_open = 0;
 static int menu_selected = 0;
 
-// Draws (or refreshes) the command menu in its own reserved region.
-// Never writes outside MENU_TOP_ROW..MENU_BOTTOM_ROW, so the HUD is
-// untouched. Scrolls automatically if NUM_COMMANDS grows past what fits.
+// The left column always gets the "extra" entry when NUM_COMMANDS is odd,
+// since commands fill left-to-right, top-to-bottom.
+static int col_count(int col) {
+    return (NUM_COMMANDS - col + 1) / 2;
+}
+
+// Straight up/down: stay in the same column, wrap within it.
+static void menu_move_vertical(int delta) {
+    int col = menu_selected % 2;
+    int row = menu_selected / 2;
+    int rows_in_col = col_count(col);
+    row = (row + delta + rows_in_col) % rows_in_col;
+    menu_selected = row * 2 + col;
+}
+
+// Left/right: jump to the other column, same row (clamped if that
+// column is one shorter, e.g. with an odd NUM_COMMANDS).
+static void menu_move_horizontal(int target_col) {
+    int col = menu_selected % 2;
+    if (col == target_col) return;
+    int row = menu_selected / 2;
+    int rows_in_target = col_count(target_col);
+    if (rows_in_target == 0) return;
+    if (row >= rows_in_target) row = rows_in_target - 1;
+    menu_selected = row * 2 + target_col;
+}
+
+// Draws (or refreshes) the command menu as a 2-column grid: command 1
+// top-left, command 2 top-right, command 3 below command 1, command 4
+// below command 2, etc. Never writes outside MENU_TOP_ROW..MENU_BOTTOM_ROW,
+// so the HUD is untouched. Scrolls automatically if the grid grows past
+// what fits vertically.
 void draw_command_menu(PrintConsole *bot_con, int selected) {
     consoleSelect(bot_con);
 
@@ -115,24 +147,36 @@ void draw_command_menu(PrintConsole *bot_con, int selected) {
         printf("\x1b[%d;1H%-40s", row, "");
     }
 
-    printf("\x1b[%d;1H-- Commands (A: send, B: cancel) --    ", MENU_TOP_ROW);
+    printf("\x1b[%d;1H- Commands (A:send B:cancel) -", MENU_TOP_ROW);
 
     int list_top  = MENU_TOP_ROW + 1;
     int list_rows = MENU_BOTTOM_ROW - list_top + 1;
 
+    int total_rows = col_count(0); // grid rows needed (left col is never shorter)
+    int sel_row = selected / 2;
+
     int scroll = 0;
-    if (NUM_COMMANDS > list_rows) {
-        scroll = selected - list_rows / 2;
+    if (total_rows > list_rows) {
+        scroll = sel_row - list_rows / 2;
         if (scroll < 0) scroll = 0;
-        if (scroll > NUM_COMMANDS - list_rows) scroll = NUM_COMMANDS - list_rows;
+        if (scroll > total_rows - list_rows) scroll = total_rows - list_rows;
     }
 
-    for (int row = 0; row < list_rows; row++) {
-        int cmd_idx = scroll + row;
-        if (cmd_idx >= NUM_COMMANDS) break;
+    for (int r = 0; r < list_rows; r++) {
+        int grid_row = scroll + r;
+        if (grid_row >= total_rows) break;
 
-        const char *marker = (cmd_idx == selected) ? ">" : " ";
-        printf("\x1b[%d;1H%s %-37s", list_top + row, marker, g_commands[cmd_idx].label);
+        int left_idx  = grid_row * 2;
+        int right_idx = grid_row * 2 + 1;
+
+        if (left_idx < NUM_COMMANDS) {
+            const char *marker = (left_idx == selected) ? ">" : " ";
+            printf("\x1b[%d;%dH%s %-16s", list_top + r, LEFT_COL_X, marker, g_commands[left_idx].label);
+        }
+        if (right_idx < NUM_COMMANDS) {
+            const char *marker = (right_idx == selected) ? ">" : " ";
+            printf("\x1b[%d;%dH%s %-16s", list_top + r, RIGHT_COL_X, marker, g_commands[right_idx].label);
+        }
     }
 }
 
@@ -171,12 +215,6 @@ void add_to_history(const char *line) {
 void redraw_console(PrintConsole *con) {
     consoleSelect(con);
     consoleClear();
-
-    // FIX: consoleClear() does not reset text attributes/colors. If a color
-    // was left "on" from before the clear (e.g. the line that set it has
-    // scrolled out of the visible window), it would otherwise bleed into
-    // the freshly cleared screen and paint unrelated lines. Force a known
-    // baseline attribute state on every redraw.
     printf("\x1b[0m");
 
     int total = history_count;
@@ -200,15 +238,6 @@ void redraw_console(PrintConsole *con) {
 void print_word_wrapped(const char *text, PrintConsole *con) {
     static char line_buf[256];
     static int line_len = 0;   
-    // FIX: this MUST be static. line_buf/line_len are static so partial
-    // line state (including a partial ANSI escape sequence) survives
-    // between calls -- but buf_idx was a plain local that reset to 0 on
-    // every call. Since a single recv() may cut an escape code in half
-    // (e.g. "\x1b[1;3" in one packet, "2m" in the next), resetting buf_idx
-    // caused the second half to overwrite line_buf from the start instead
-    // of appending after the buffered partial code, corrupting/losing the
-    // color code and leaking stray characters ("2m") into the text. This
-    // is the root cause of colors "affecting the wrong things".
     static int buf_idx = 0;
 
     for (int i = 0; text[i] != '\0'; i++) {
@@ -291,13 +320,6 @@ void print_word_wrapped(const char *text, PrintConsole *con) {
                 line_len = 0;
                 for (int k = 0; k < buf_idx; k++) {
                     if (line_buf[k] == '\x1b') {
-                        // FIX: the primary parser above treats ANY letter
-                        // (A-Z, a-z) as a valid escape terminator, not just
-                        // 'm'. This recalculation only looked for 'm', so
-                        // an escape sequence ending in a different letter
-                        // would desync the length count and could swallow
-                        // real text into the "skip" range. Match the same
-                        // terminator rule as the main parser.
                         k++;
                         while (k < buf_idx &&
                                !((line_buf[k] >= 'A' && line_buf[k] <= 'Z') ||
@@ -545,12 +567,22 @@ int main(int argc, char* argv[]) {
         if(kDown)
         {
             if (menu_open) {
-                //D-pad now used for navigating menu instead of navigating the world
+                // Menu is open: D-pad up/down navigates within the current
+                // column, D-pad left/right hops to the other column (same
+                // row), A sends the highlighted command, B cancels. All
+                // other input is swallowed this frame so movement/touch
+                // don't fire accidentally while browsing.
                 if (kDown & KEY_DUP) {
-                    menu_selected = (menu_selected - 1 + NUM_COMMANDS) % NUM_COMMANDS;
+                    menu_move_vertical(-1);
                     draw_command_menu(&bottomScreenConsole, menu_selected);
                 } else if (kDown & KEY_DDOWN) {
-                    menu_selected = (menu_selected + 1) % NUM_COMMANDS;
+                    menu_move_vertical(1);
+                    draw_command_menu(&bottomScreenConsole, menu_selected);
+                } else if (kDown & KEY_DLEFT) {
+                    menu_move_horizontal(0);
+                    draw_command_menu(&bottomScreenConsole, menu_selected);
+                } else if (kDown & KEY_DRIGHT) {
+                    menu_move_horizontal(1);
                     draw_command_menu(&bottomScreenConsole, menu_selected);
                 } else if (kDown & KEY_A) {
                     const char *cmd = g_commands[menu_selected].command;
@@ -561,7 +593,7 @@ int main(int argc, char* argv[]) {
                     menu_open = 0;
                     clear_command_menu(&bottomScreenConsole);
                 }
-            } else if (kDown & KEY_A) {
+            } else if (kDown & KEY_A & initialSetup) {
                 menu_open = 1;
                 menu_selected = 0;
                 draw_command_menu(&bottomScreenConsole, menu_selected);

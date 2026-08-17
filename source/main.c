@@ -1,4 +1,4 @@
-#include <3ds.h>          // Must always be first!
+#include <3ds.h>       
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -55,6 +55,8 @@ int Thirst = 0;
 int MaxThirst = 0;
 
 int initialSetup = 0;
+int canPrint = 1;
+int chatMode = 0;
 //Update bottom screen with de stats
 void draw_bottom_hud(PrintConsole *bot_con) {
     consoleSelect(bot_con);
@@ -348,6 +350,21 @@ void print_word_wrapped(const char *text, PrintConsole *con) {
 }
 
 
+void toggle_chat_mode_indicator(PrintConsole *bot_con, bool refresh) {
+    if(!refresh)
+    {
+        chatMode = !chatMode;
+    }
+ 
+    consoleSelect(bot_con);
+    for (int row = MENU_TOP_ROW; row <= MENU_BOTTOM_ROW; row++) {
+        printf("\x1b[%d;1H%-40s", row, "");
+    }
+    if (chatMode) {
+        printf("\x1b[%d;1H%-40s", MENU_TOP_ROW, "Chat Mode");
+    }
+}
+
 void UpdateStatus(int sock){
     send(sock, "health\r\n", strlen("health\r\n"), 0);
     send(sock, "energy\r\n", strlen("energy\r\n"), 0);
@@ -486,6 +503,7 @@ int main(int argc, char* argv[]) {
                     HP = current_hp;
                     MaxHP = max_hp;
                     draw_bottom_hud(&bottomScreenConsole); // Refresh HUD immediately
+                    canPrint = 0;
                 }
             }
             //Set Energy
@@ -498,6 +516,7 @@ int main(int argc, char* argv[]) {
                     Energy = current_energy;
                     MaxEnergy = max_energy;
                     draw_bottom_hud(&bottomScreenConsole); // Refresh HUD immediately
+                    canPrint = 0;
                 }
             }
 
@@ -511,6 +530,7 @@ int main(int argc, char* argv[]) {
                     Thirst = current_thirst;
                     MaxThirst = max_thirst;
                     draw_bottom_hud(&bottomScreenConsole); // Refresh HUD immediately
+                    canPrint = 0;
                 }
             }
 
@@ -524,17 +544,20 @@ int main(int argc, char* argv[]) {
                     Hunger = current_hunger;
                     MaxHunger = max_hunger;
                     draw_bottom_hud(&bottomScreenConsole); // Refresh HUD immediately
+                    canPrint = 0;
                 }
             }
 
-            if(hunger_ptr != NULL || thirst_ptr != NULL || energy_ptr != NULL || hp_ptr != NULL){
-
-            }else{
-                print_word_wrapped(rx_buffer, &topScreenConsole);
-            }
             
 
 
+            if(canPrint)
+            {
+                print_word_wrapped(rx_buffer, &topScreenConsole);
+            }else
+            {
+                canPrint = 1;
+            }
 
         }
 
@@ -587,10 +610,12 @@ int main(int argc, char* argv[]) {
                     const char *cmd = g_commands[menu_selected].command;
                     send(sock, cmd, strlen(cmd), 0);
                     menu_open = 0;
+                    toggle_chat_mode_indicator(&bottomScreenConsole, true);
                     clear_command_menu(&bottomScreenConsole);
                 } else if (kDown & KEY_B) {
                     menu_open = 0;
                     clear_command_menu(&bottomScreenConsole);
+                    toggle_chat_mode_indicator(&bottomScreenConsole, true);
                 }
             } else if (kDown & KEY_A & initialSetup) {
                 menu_open = 1;
@@ -632,7 +657,16 @@ int main(int argc, char* argv[]) {
                                 strcat(text_input, "\r\n");
 
                                 // Send the saved text variable to the MUD server socket
-                                send(sock, text_input, strlen(text_input), 0);
+                                char result[512];
+                                if(chatMode){
+                                    
+                                    snprintf(result, sizeof(result), "%s%s", "chat ", text_input);
+                                    send(sock, result, strlen(result), 0);
+                                }else
+                                {
+                                    send(sock, text_input, strlen(text_input), 0);
+                                }
+                                
 
                                 //printf("\n> %s", text_input); // Echo what you sent to the top screen
                             }
@@ -640,6 +674,11 @@ int main(int argc, char* argv[]) {
 
                     case KEY_X:
                         send(sock, text_input, strlen(text_input), 0);
+                    break;
+
+                    case KEY_L:
+                    case KEY_R:
+                        toggle_chat_mode_indicator(&bottomScreenConsole, false);
                     break;
 
 
