@@ -24,3 +24,4 @@ X: Send previous command
 
 Start: Disconnect from TriadCity.
 
+L/R: Toggle Chat Mode
